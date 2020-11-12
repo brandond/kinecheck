@@ -46,6 +46,7 @@ def main(hostname, username, password, database):
 
         if current_rev - compact_rev > 1000000:
             logging.info(f"\tCompaction appears to have stalled; skipping additional checks")
+            sleep(30)
             continue
 
         # Validate that all rows pointed at by compact_rev have the same name as the row that referred to them,
