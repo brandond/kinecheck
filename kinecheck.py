@@ -29,7 +29,6 @@ def main(hostname, username, password, database):
         kine_names = dict()
         prev_revisions = dict()
         faux_target_rev = 0
-        cur_compact_rev = 0
 
         # Print max and compact rev.
         with cnx.cursor() as cursor:
@@ -42,9 +41,12 @@ def main(hostname, username, password, database):
             """)
 
             for (current_rev, compact_rev, gap_count) in cursor:
-                cur_compact_rev = compact_rev
                 faux_target_rev = current_rev - 1000
                 logging.info(f"Compacted to {compact_rev}/{current_rev} - {current_rev - compact_rev} revs back; {gap_count} gaps at {datetime.now().isoformat()}")
+
+        if current_rev - compact_rev > 1000000:
+            logging.info(f"\tCompaction appears to have stalled; skipping additional checks")
+            continue
 
         # Validate that all rows pointed at by compact_rev have the same name as the row that referred to them,
         # and that multiple rows don't have the same prev_rev.
@@ -61,8 +63,8 @@ def main(hostname, username, password, database):
                     logging.warning(f"\tDuplicate prev_revision={prev_revision} in {revision} - also targeted by {prev_revisions[prev_revision]}")
                 if name != 'compact_rev_key' and prev_revision in kine_names and kine_names[prev_revision] != name:
                     logging.warning(f"\tName mismatch: id={revision}, prev_revision={prev_revision}, name={name} - prev_revision name={kine_names[prev_revision]}")
-                if name != 'compact_rev_key' and prev_revision not in kine_names and prev_revision != 0 and prev_revision > cur_compact_rev:
-                    logging.warning(f"\tPrevious revision {prev_revision} missing but uncompacted for id={revision}, name={name} - compact_rev={cur_compact_rev}")
+                if name != 'compact_rev_key' and prev_revision not in kine_names and prev_revision != 0 and prev_revision > compact_rev:
+                    logging.warning(f"\tPrevious revision {prev_revision} missing but uncompacted for id={revision}, name={name} - compact_rev={compact_rev}")
                 rowcount += 1
                 kine_ids[name] = revision
                 kine_names[revision] = name
@@ -103,7 +105,7 @@ def main(hostname, username, password, database):
                 if kine_ids[name] == revision and deleted == 0:
                     logging.warning(f"\tCompact would delete id={revision} prev_revision={prev_revision} name={name} deleted={deleted}")
                     logging.warning("\t\tThis is the most recent revision!")
-            logging.info(f"\tCompact from {cur_compact_rev} to {faux_target_rev} would delete {rowcount} of {faux_target_rev - cur_compact_rev} rows")
+            logging.info(f"\tCompact from {compact_rev} to {faux_target_rev} would delete {rowcount} of {faux_target_rev - compact_rev} rows")
 
         sleep(30)
 
