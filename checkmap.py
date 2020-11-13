@@ -5,6 +5,7 @@
 
 import random
 import string
+from time import sleep
 from kubernetes import client, config
 from kubernetes.client import Configuration
 
@@ -30,14 +31,19 @@ def main():
         else:
             raise e
 
+    create_configmaps()
+    update_configmaps()
     while True:
-        i = random.randint(0, 9)
-        if i == 0:
-            create_configmap()
-        elif i < 9:
-            update_configmap()
-        else:
-            delete_configmap()
+        check_configmaps()
+        sleep(30)
+
+
+def refresh_configmap(cm):
+    try:
+        print(f"Refreshing {cm.metadata.name} rev={cm.metadata.resource_version}")
+        return v1.read_namespaced_config_map(name=cm.metadata.name, namespace=namespace)
+    except client.exceptions.ApiException as e:
+        print(f"\tError: {e.status}")
 
 
 def update_or_merge_configmap(cm):
@@ -107,34 +113,39 @@ def try_delete_configmap(cm):
             raise e
 
 
-def create_configmap():
-    i = random.randint(0, 99)
-    cm = client.V1ConfigMap(
-            metadata=client.V1ObjectMeta(
-                name=f"test-{i:02}"))
-    configmaps[i] = create_or_get_configmap(cm)
+def create_configmaps():
+    for i in range(0, 2000):
+        cm = client.V1ConfigMap(
+                metadata=client.V1ObjectMeta(
+                    name=f"test-{i:04}"))
+        configmaps[i] = create_or_get_configmap(cm)
 
 
-def update_configmap():
-    if not configmaps:
-        return
-    i = random.choice(list(configmaps.keys()))
-    j = random.randint(0, 99)
-    k = random.randint(0, 512)
-    cm = configmaps[i]
-    if not cm.data:
-        cm.data = dict()
-    cm.data[f"key-{j:02}"] = ''.join(random.choices(string.printable, k=k))
-    configmaps[i] = update_or_merge_configmap(cm)
+def update_configmaps():
+    for i, cm in configmaps.items():
+        j = random.randint(0, 99)
+        k = random.randint(0, 512)
+        if not cm.data:
+            cm.data = dict()
+        cm.data[f"key-{j:02}"] = ''.join(random.choices(string.printable, k=k))
+        configmaps[i] = update_or_merge_configmap(cm)
 
 
-def delete_configmap():
-    if not configmaps:
-        return
-    i = random.choice(list(configmaps.keys()))
-    cm = configmaps[i]
-    if try_delete_configmap(cm):
-        del configmaps[i]
+def check_configmaps():
+    error = False
+    for i, cm in configmaps.items():
+        cm = refresh_configmap(cm)
+        if cm:
+            configmaps[i] = cm
+        else:
+            error = True
+    if error:
+        raise Exception("Failed to refresh one or more ConfigMaps!")
+
+
+def delete_configmaps():
+    for i, cm in configmaps.items():
+        try_delete_configmap(cm)
 
 
 if __name__ == '__main__':
